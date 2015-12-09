@@ -4,8 +4,7 @@ from googleanalytics.account import Account
 from xml.etree import ElementTree
 
 import re
-import urllib
-import urllib2
+import requests
 
 DEBUG = False
 PRETTYPRINT = True
@@ -23,22 +22,26 @@ class GAConnection:
         if google_email == None or google_password == None:
             google_email, google_password = config.get_google_credentials()
 
-        data = "accountType=GOOGLE&Email=%s&Passwd=%s&service=analytics&source=%s"
-        data = data % (google_email, google_password, self.user_agent)
+        data = {
+            'accountType': 'GOOGLE',
+            'Email': google_email,
+            'Passwd': google_password,
+            'service': 'analytics',
+            'source': self.user_agent,
+        }
         if DEBUG:
-            print "Authenticating with %s / %s" % (google_email, google_password)
+            print("Authenticating with %s / %s" % (google_email, google_password))
         response = self.make_request('POST', path=path, data=data)
-        auth_token = authtoken_pat.search(response.read())
+        auth_token = authtoken_pat.search(response.text)
         self.auth_token = auth_token.groups(0)[0]
 
     def get_accounts(self, start_index=1, max_results=None):
         path = '/analytics/feeds/accounts/default'
-        data = {'start-index': start_index, }
+        data = {'start-index': start_index,}
         if max_results:
             data['max-results'] = max_results
-        data = urllib.urlencode(data)
         response = self.make_request('GET', path, data=data)
-        raw_xml = response.read()
+        raw_xml = response.text
         xml_tree = ElementTree.fromstring(raw_xml)
         account_list = []
         accounts = xml_tree.getiterator('{http://www.w3.org/2005/Atom}entry')
@@ -82,28 +85,24 @@ class GAConnection:
             headers = headers.copy()
 
         if DEBUG:
-            print "** Headers: %s" % (headers,)
-
-        if method == 'GET':
-            path = '%s?%s' % (path, data)
+            print("** Headers: %s" % (headers,))
 
         if DEBUG:
-            print "** Method: %s" % (method,)
-            print "** Path: %s" % (path,)
-            print "** Data: %s" % (data,)
-            print "** URL: %s" % (self.default_host + path)
+            print("** Method: %s" % (method,))
+            print("** Path: %s" % (path,))
+            print("** Data: %s" % (data,))
+            print("** URL: %s" % (self.default_host + path))
 
         if PRETTYPRINT:
             # Doesn't seem to work yet...
-            data += "&prettyprint=true"
-
-        if method == 'POST':
-            request = urllib2.Request(self.default_host + path, data, headers)
-        elif method == 'GET':
-            request = urllib2.Request(self.default_host + path, headers=headers)
+            data['prettyprint'] = 'true'
 
         try:
-            response = urllib2.urlopen(request, timeout=TIMEOUT)
-        except urllib2.HTTPError, e:
+            if method == 'POST':
+                request = requests.post(self.default_host + path, data=data, headers=headers)
+            elif method == 'GET':
+                request = requests.get(self.default_host + path, params=data, headers=headers)
+            request.raise_for_status()
+        except requests.exceptions.HTTPError as e:
             raise GoogleAnalyticsClientError(e)
         return response
